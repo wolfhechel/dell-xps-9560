@@ -1,1 +1,1 @@
-ACTION=="change", SUBSYSTEM=="power_supply", RUN+="/usr/share/xps/udev/hooks/power-manager"
+ACTION=="change", SUBSYSTEM=="power_supply", RUN+="/usr/share/xps/udev-hooks/power-manager"
