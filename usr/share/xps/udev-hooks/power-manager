@@ -1,0 +1,166 @@
+#!/bin/bash
+
+# Credit where credit is due:
+# Script originally by VaporEidolon (https://www.reddit.com/r/Dell/comments/6s2e3w/optimizing_dell_xps_for_linux/dl9yf7q/)
+# 
+# I rewrote this partially to simplify the script to help with maintainance.
+# 
+# Adapted from:
+# http://www.neowin.net/forum/topic/1106745-howto-powersaving-tweaks-with-a-udev-rule/
+# https://wiki.archlinux.org/index.php/Power_management
+
+#Needed for (!pci*)
+shopt -s extglob
+
+{
+
+set -e # Stop on errors
+
+if [ "$EUID" -ne 0 ]; then
+  echo "ERROR: not running with root permissions."
+  echo "Please run as root!"
+  exit 1
+fi
+
+log() {
+    echo $@
+}
+
+set_val() {
+    for param in $1; do
+        if [ ! -z $2 ]; then
+            log "Setting $param = $2"
+            echo $2 > $param
+        else
+            log "Skipping $param"
+        fi
+    done
+}
+
+# Enumerate appropriate mode
+if [ ! -z $1 ]; then
+    mode=$1
+elif [ -f /sys/class/power_supply/AC/online ]; then
+
+    # Automatically check if AC is online
+    if [ `cat /sys/class/power_supply/AC/online` == "1" ]; then
+        # We're connected to the outloet
+        mode=ac
+    else
+        mode=battery
+    fi
+else
+    mode=unknown
+fi
+
+intel_drm=/sys/class/drm/card0
+
+if [ -d $intel_drm ]; then
+    REG_INTEL_MIN_MHZ=`cat $intel_drm/gt_RPn_freq_mhz`
+    REG_INTEL_MAX_MHZ=`cat $intel_drm/gt_RP0_freq_mhz`
+    REG_INTEL_EFF_MHZ=`cat $intel_drm/gt_RP1_freq_mhz`
+else
+    log "Cannot read Intel GPU registers"
+fi
+
+case $mode in 
+ac)
+    intel_pstate_min_perf_pct=25
+    intel_pstate_max_perf_pct=100
+    intel_pstate_no_turbo=0
+    cpu_energy_performance_preference=balance_performance
+    device_power_control=on
+    usb_autosuspend=0
+    usb_power_level=on
+    sata_alpm=max_performance
+    pcie_aspm=performance
+    snd_hda_intel_power_save=0
+    snd_hda_intel_power_save_controller=N
+    iwlmvm_power_scheme=1
+    laptop_mode=0
+    dirty_ratio=20
+    dirty_background_ratio=5
+    dirty_writeback_centisecs=500
+    dirty_expire_centisecs=1000
+    wifi_power_save=off
+    intel_gpu_min_mhz=$REG_INTEL_MIN_MHZ
+    intel_gpu_max_mhz=$REG_INTEL_MAX_MHZ
+    ;;
+
+battery)
+    intel_pstate_min_perf_pct=5
+    intel_pstate_max_perf_pct=80
+    intel_pstate_no_turbo=1
+    cpu_energy_performance_preference=balance_power
+    device_power_control=auto
+    usb_autosuspend=1
+    usb_power_level=auto
+    sata_alpm=min_power
+    pcie_aspm=powersupersave
+    snd_hda_intel_power_save=1
+    snd_hda_intel_power_save_controller=Y
+    iwlmvm_power_scheme=2
+    laptop_mode=5
+    dirty_ratio=25
+    dirty_background_ratio=15
+    dirty_writeback_centisecs=3000
+    dirty_expire_centisecs=10000
+    wifi_power_save=on
+    intel_gpu_min_mhz=$REG_INTEL_MIN_MHZ
+    intel_gpu_max_mhz=$REG_INTEL_EFF_MHZ
+    ;;
+
+*)
+    log "Don't know what to do in mode $mode"
+    exit 2
+    ;;
+esac
+
+log `date +%d/%m/%Y_%H:%M:%S` " $mode mode selected"
+
+# Set limits for maximum and minimum frequency
+set_val "/sys/devices/system/cpu/intel_pstate/min_perf_pct" $intel_pstate_min_perf_pct
+set_val "/sys/devices/system/cpu/intel_pstate/max_perf_pct" $intel_pstate_max_perf_pct
+set_val "/sys/devices/system/cpu/intel_pstate/no_turbo" $intel_pstate_no_turbo
+set_val "/sys/devices/system/cpu/cpu?/cpufreq/energy_performance_preference" $cpu_energy_performance_preference
+
+# Device and disk runtime-PM and USB power control (one can do that on {usb,pci,i2c} only if needed)
+# The first one might conflict with nvidia devices starting, so we exclude the PCI devices
+#     for i in /sys/bus/*/devices/*/power/control; do echo auto > ${i} ; done
+set_val "/sys/bus/!(pci*)/devices/*/power/control" $device_power_control
+set_val "/sys/bus/*/devices/*/ata*/power/control" $device_power_control
+set_val "/sys/block/*/device/power/control" $device_power_control
+
+# USB autosuspend
+set_val "/sys/bus/usb/devices/*/power/autosuspend" $usb_autosuspend
+set_val "/sys/bus/usb/devices/*/power/level" $usb_power_level
+
+# SATA ALPM
+set_val "/sys/class/scsi_host/host*/link_power_management_policy" $sata_alpm
+
+# PCI-E ASPM
+set_val "/sys/module/pcie_aspm/parameters/policy" $pcie_aspm
+
+# Sound card powersave
+set_val "/sys/module/snd_hda_intel/parameters/power_save" $snd_hda_intel_power_save
+set_val "/sys/module/snd_hda_intel/parameters/power_save_controller" $snd_hda_intel_power_save_controller
+
+set_val "/sys/module/iwlmvm/parameters/power_scheme" $iwlmvm_power_scheme
+
+# Kernel write mode
+set_val "/proc/sys/vm/laptop_mode" $laptop_mode
+set_val "/proc/sys/vm/dirty_ratio" $dirty_ratio
+set_val "/proc/sys/vm/dirty_background_ratio" $dirty_background_ratio
+set_val "/proc/sys/vm/dirty_writeback_centisecs" $dirty_writeback_centisecs
+set_val "/proc/sys/vm/dirty_expire_centisecs" $dirty_expire_centisecs
+
+# Setting Intel GPU clock speed
+if [ -d $intel_drm ]; then
+    set_val $intel_drm/gt_min_freq_mhz $intel_gpu_min_mhz
+    set_val $intel_drm/gt_max_freq_mhz $intel_gpu_max_mhz
+fi
+
+# Wifi powersave
+log "Setting wlp2s0 power save to $wifi_power_save"
+iw dev wlp2s0 set power_save $wifi_power_save
+}
