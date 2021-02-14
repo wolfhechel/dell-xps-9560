@@ -1,10 +1,11 @@
 pkgname=dell-xps-9560
-pkgver=0.r1.d944cb5
+pkgver=0.r3.66510f2
 pkgrel=1
 pkgdesc="Dell XPS 9560 tweaks"
 arch=("any")
 url="https://github.com/wolfhechel/dell-xps-9560"
 license=("GPL3")
+install=dell-xps-9560.install
 conflicts=("tpl")
 source=("git+${url}.git")
 sha256sums=("SKIP")
