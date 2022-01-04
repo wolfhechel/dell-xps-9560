@@ -159,7 +159,8 @@ set_val "/sys/module/pcie_aspm/parameters/policy" $pcie_aspm
 set_val "/sys/module/snd_hda_intel/parameters/power_save" $snd_hda_intel_power_save
 set_val "/sys/module/snd_hda_intel/parameters/power_save_controller" $snd_hda_intel_power_save_controller
 
-set_val "/sys/module/iwlmvm/parameters/power_scheme" $iwlmvm_power_scheme
+# Not possible to change iwlmvm power_scheme while module is online.
+# set_val "/sys/module/iwlmvm/parameters/power_scheme" $iwlmvm_power_scheme
 
 # Kernel write mode
 set_val "/proc/sys/vm/laptop_mode" $laptop_mode
