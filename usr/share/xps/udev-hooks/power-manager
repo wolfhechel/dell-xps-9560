@@ -159,8 +159,22 @@ set_val "/sys/bus/*/devices/*/ata*/power/control" $device_power_control
 set_val "/sys/block/*/device/power/control" $device_power_control
 
 # USB autosuspend
-set_val "/sys/bus/usb/devices/*/power/autosuspend" $usb_autosuspend
-set_val "/sys/bus/usb/devices/*/power/level" $usb_power_level
+for usbdev in /sys/bus/usb/devices/*; do
+    if [ ! -e "$usbdev/power/autosuspend" ]; then
+        continue
+    fi
+
+    # Skip autosuspend on HID devices
+    for bInterfaceClass in $usbdev/*/bInterfaceClass; do
+        if [ "$(cat $bInterfaceClass)" == "03" ]; then
+            log "Skipping autosuspend on USB $usbdev (HID)"
+            continue 2
+        fi
+    done
+
+    set_val "$usbdev/power/autosuspend" $usb_autosuspend
+    set_val "$usbdev/power/level" $usb_power_level
+done
 
 # SATA ALPM
 set_val "/sys/class/scsi_host/host*/link_power_management_policy" $sata_alpm
