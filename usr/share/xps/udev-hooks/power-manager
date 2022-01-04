@@ -111,7 +111,7 @@ battery)
     device_power_control=auto
     usb_autosuspend=1
     usb_power_level=auto
-    sata_alpm=min_power
+    sata_alpm=med_power_with_dipm
     pcie_aspm=powersupersave
     snd_hda_intel_power_save=1
     snd_hda_intel_power_save_controller=Y
