@@ -53,7 +53,21 @@ else
     mode=unknown
 fi
 
-intel_drm=/sys/class/drm/card0
+INTEL_DEVICE=0x591b
+INTEL_VENDOR=0x8086
+
+intel_drm=
+
+for card in /sys/class/drm/card?; do
+    vendor=`cat $card/device/vendor`
+    device=`cat $card/device/device`
+
+    if [ "$vendor" == "$INTEL_VENDOR" ] &&
+       [ "$device" == "$INTEL_DEVICE" ]; then
+        intel_drm=$card
+	break
+    fi
+done
 
 if [ -d $intel_drm ]; then
     REG_INTEL_MIN_MHZ=`cat $intel_drm/gt_RPn_freq_mhz`
