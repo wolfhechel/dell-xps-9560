@@ -83,6 +83,7 @@ ac)
     intel_pstate_max_perf_pct=100
     intel_pstate_no_turbo=0
     cpu_energy_performance_preference=balance_performance
+    cpu_scaling_governor=performance
     device_power_control=on
     usb_autosuspend=0
     usb_power_level=on
@@ -106,6 +107,7 @@ battery)
     intel_pstate_max_perf_pct=80
     intel_pstate_no_turbo=1
     cpu_energy_performance_preference=balance_power
+    cpu_scaling_governor=powersave
     device_power_control=auto
     usb_autosuspend=1
     usb_power_level=auto
@@ -136,7 +138,18 @@ log `date +%d/%m/%Y_%H:%M:%S` " $mode mode selected"
 set_val "/sys/devices/system/cpu/intel_pstate/min_perf_pct" $intel_pstate_min_perf_pct
 set_val "/sys/devices/system/cpu/intel_pstate/max_perf_pct" $intel_pstate_max_perf_pct
 set_val "/sys/devices/system/cpu/intel_pstate/no_turbo" $intel_pstate_no_turbo
-set_val "/sys/devices/system/cpu/cpu?/cpufreq/energy_performance_preference" $cpu_energy_performance_preference
+set_val "/sys/devices/system/cpu/cpu?/cpufreq/scaling_governor" $cpu_scaling_governor
+
+# EPP is self-managed when HWP Dynamic Boost is enabled and scaling governor set to performance.
+if [ -e "/sys/devices/system/cpu/intel_pstate/hwp_dynamic_boost" ]; then
+    for cpufreq in /sys/devices/system/cpu/cpu?/cpufreq; do
+        if [ "$(cat $cpufreq/scaling_governor)" != "performance" ]; then
+            set_val "$cpufreq/energy_performance_preference" $cpu_energy_performance_preference
+        fi
+    done
+else
+    set_val "/sys/devices/system/cpu/cpu?/cpufreq/energy_performance_preference" $cpu_energy_performance_preference
+fi
 
 # Device and disk runtime-PM and USB power control (one can do that on {usb,pci,i2c} only if needed)
 # The first one might conflict with nvidia devices starting, so we exclude the PCI devices
