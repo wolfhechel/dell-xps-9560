@@ -8,6 +8,9 @@
 # Adapted from:
 # http://www.neowin.net/forum/topic/1106745-howto-powersaving-tweaks-with-a-udev-rule/
 # https://wiki.archlinux.org/index.php/Power_management
+# 
+# Incorporated CFS scheduler tweaks from
+# https://github.com/igo95862/cfs-zen-tweaks
 
 #Needed for (!pci*)
 shopt -s extglob
@@ -16,25 +19,33 @@ shopt -s extglob
 
 set -e # Stop on errors
 
-if [ "$EUID" -ne 0 ]; then
-  echo "ERROR: not running with root permissions."
-  echo "Please run as root!"
-  exit 1
-fi
-
 log() {
     echo $@
 }
 
+if [ "$EUID" -ne 0 ]; then
+  log "ERROR: not running with root permissions."
+  log "Please run as root!"
+  exit 1
+fi
+
 set_val() {
-    for param in $1; do
-        if [ ! -z $2 ]; then
-            log "Setting $param = $2"
-            echo $2 > $param
-        else
-            log "Skipping $param"
-        fi
-    done
+    if compgen -G $1 &> /dev/null; then
+        for param in $1; do
+            if [ ! -z $2 ]; then
+                log "Setting $param = $2"
+                echo $2 > $param
+            else
+                log "Skipping $param"
+            fi
+        done
+    else
+        log "No matches on $1, skipping."
+    fi
+}
+
+call_gawk() {
+  printf '%s' "$(gawk 'BEGIN {print '"${1}"'}')"
 }
 
 # Enumerate appropriate mode
@@ -74,8 +85,13 @@ if [ -d $intel_drm ]; then
     REG_INTEL_MAX_MHZ=`cat $intel_drm/gt_RP0_freq_mhz`
     REG_INTEL_EFF_MHZ=`cat $intel_drm/gt_RP1_freq_mhz`
 else
-    log "Cannot read Intel GPU registers"
+    log "ERROR: Cannot read Intel GPU registers"
 fi
+
+NPROC="$(nproc)"
+
+# Linux uses this algorithm to multiply miliseconds
+CFS_MODIFIER="$( call_gawk "10 ** 6 * (1 + int(log(${NPROC}) / log(2)))" )"
 
 case $mode in 
 ac)
@@ -100,6 +116,12 @@ ac)
     wifi_power_save=off
     intel_gpu_min_mhz=$REG_INTEL_MIN_MHZ
     intel_gpu_max_mhz=$REG_INTEL_MAX_MHZ
+    sched_latency_ns=4
+    sched_min_granularity_ns=0.4
+    sched_wakeup_granularity_ns=0.5
+    sched_migration_cost_ns=0.25
+    sched_cfs_bandwidth_slice_us=3
+    sched_nr_migrate=64
     ;;
 
 battery)
@@ -124,6 +146,12 @@ battery)
     wifi_power_save=on
     intel_gpu_min_mhz=$REG_INTEL_MIN_MHZ
     intel_gpu_max_mhz=$REG_INTEL_EFF_MHZ
+    sched_latency_ns=6
+    sched_min_granularity_ns=0.75
+    sched_wakeup_granularity_ns=1
+    sched_migration_cost_ns=0.5
+    sched_cfs_bandwidth_slice_us=5
+    sched_nr_migrate=32
     ;;
 
 *)
@@ -131,6 +159,7 @@ battery)
     exit 2
     ;;
 esac
+
 
 log `date +%d/%m/%Y_%H:%M:%S` " $mode mode selected"
 
@@ -151,7 +180,7 @@ else
     set_val "/sys/devices/system/cpu/cpu?/cpufreq/energy_performance_preference" $cpu_energy_performance_preference
 fi
 
-# Device and disk runtime-PM and USB power control (one can do that on {usb,pci,i2c} only if needed)
+# Device and disk runtime-PM and UnnrSB power control (one can do that on {usb,pci,i2c} only if needed)
 # The first one might conflict with nvidia devices starting, so we exclude the PCI devices
 #     for i in /sys/bus/*/devices/*/power/control; do echo auto > ${i} ; done
 set_val "/sys/bus/!(pci*)/devices/*/power/control" $device_power_control
@@ -205,4 +234,24 @@ fi
 # Wifi powersave
 log "Setting wlp2s0 power save to $wifi_power_save"
 iw dev wlp2s0 set power_save $wifi_power_save
+
+
+# Setting CFS scheduling parameters (if debug is enabled)
+
+set_val /sys/kernel/debug/sched/latency_ns \
+    "$( call_gawk "int(${sched_latency_ns} * ${CFS_MODIFIER})" )"
+
+set_val /sys/kernel/debug/sched/min_granularity_ns \
+    "$( call_gawk "int(${sched_min_granularity_ns} * ${CFS_MODIFIER})" )"
+
+set_val /sys/kernel/debug/sched/wakeup_granularity_ns \
+    "$( call_gawk "int(${sched_wakeup_granularity_ns} * ${CFS_MODIFIER})" )"
+
+set_val /sys/kernel/debug/sched/migration_cost_ns \
+    "$( call_gawk "int(${sched_migration_cost_ns} * ${CFS_MODIFIER})" )"
+
+set_val /proc/sys/kernel/sched_cfs_bandwidth_slice_us \
+    "$( call_gawk "int(${sched_cfs_bandwidth_slice_us} * 1000)" )"
+
+set_val /sys/kernel/debug/sched/nr_migrate $sched_nr_migrate
 }
