@@ -1,5 +1,5 @@
 pkgname=dell-xps-9560
-pkgver=0.r3.66510f2
+pkgver=0.r15.5c1b542
 pkgrel=1
 pkgdesc="Dell XPS 9560 tweaks"
 arch=("any")
@@ -17,6 +17,5 @@ pkgver() {
 
 package() {
     cd ${pkgname}
-    cp -r {etc,usr} ${pkgdir}
-    chmod +x ${pkgdir}/usr/share/xps/udev-hooks/power-manager
+    cp -r etc ${pkgdir}
 }
